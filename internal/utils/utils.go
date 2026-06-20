@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -27,7 +28,7 @@ func WriteError(ctx *gin.Context, statusCode int, err any) {
 func MustGetID(ctx *gin.Context, param string) (int, bool) {
 	id, err := GetIDFromParametre(ctx, param)
 	if err != nil {
-		WriteError(ctx, 400, err.Error())
+		WriteError(ctx, http.StatusBadRequest, err.Error())
 		return 0, false
 	}
 
@@ -37,7 +38,7 @@ func MustGetID(ctx *gin.Context, param string) (int, bool) {
 func MustBind(ctx *gin.Context, obj any) bool {
 	err := BindAndValidate(ctx, obj)
 	if err != nil {
-		WriteError(ctx, 400, err)
+		WriteError(ctx, http.StatusBadRequest, err)
 		return false
 	}
 

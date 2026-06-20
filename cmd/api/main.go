@@ -1,29 +1,60 @@
 package main
 
 import (
+	"fmt"
+	"log"
+	"os"
+	"todo-api/internal/database"
 	"todo-api/internal/handlers"
 	"todo-api/internal/logger"
 	"todo-api/internal/middleware"
+	"todo-api/internal/repository"
+	"todo-api/internal/router"
+	"todo-api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	logger.InitLogger()
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Ошибка загрузки файла .env")
+	}
 
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		log.Fatal("Переменная DATABASE_URL не найдена в окружении")
+	}
+
+	fmt.Println("[INIT] Конфигурация успешно загружена")
+
+	dbPool, err := database.NewPostgresPool(connStr)
+	if err != nil {
+		log.Fatalf("[FATAL] Ошибка инициализации базы данных: %v\n", err)
+	}
+	defer dbPool.Close()
+
+	fmt.Println("[INIT] Успешное подключение к PostgreSQL")
+
+	userRepo := repository.NewUserRepository(dbPool)
+	userService := service.NewUserService(userRepo)
+	userHandler := handlers.NewUserHandler(userService)
+
+	todoRepo := repository.NewTodoRepository(dbPool)
+	todoService := service.NewTodoService(todoRepo)
+	todoHandler := handlers.NewTodoHandler(todoService)
+
+	logger.InitLogger()
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.StrucutredLoggerMiddleware())
 
-	r.GET("/todos", handlers.GetTodos)
-	r.GET("/todos/:id", handlers.GetTodoByID)
-	r.GET("/users/:id", handlers.GetUserByID)
-	r.GET("/users", handlers.GetUsers)
-	r.GET("/users/:id/todos", handlers.GetTodosByUserID)
-	r.POST("/users/:id/todos", handlers.PostTodo)
-	r.POST("/users", handlers.PostUser)
-	r.DELETE("/todos/:id", handlers.DeleteTodo)
-	r.PATCH("todos/:id", handlers.PatchTodo)
+	router.SetupRouter(r, userHandler, todoHandler)
 
-	r.Run()
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	r.Run(":" + port)
 }

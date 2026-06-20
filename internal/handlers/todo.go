@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"net/http"
 	"todo-api/internal/models"
 	"todo-api/internal/service"
 	"todo-api/internal/utils"
@@ -8,156 +10,69 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func GetTodos(ctx *gin.Context) {
-	todos := service.GetAllTodos()
-	ctx.JSON(200, gin.H{
-		"all todos": todos,
-	})
+type TodoHandler struct {
+	todoService *service.TodoService
 }
 
-func PostTodo(ctx *gin.Context) {
+func NewTodoHandler(todoService *service.TodoService) *TodoHandler {
+	return &TodoHandler{todoService: todoService}
+}
+
+func (h *TodoHandler) CreateTodo(ctx *gin.Context) {
 	userID, ok := utils.MustGetID(ctx, "id")
 	if !ok {
 		return
 	}
 
-	err := service.CheckUserID(userID)
-	if err != nil {
-		utils.WriteError(ctx, 404, err.Error())
-		return
-	}
-
-	var todo models.CreateTodoRequest
-
-	if !utils.MustBind(ctx, &todo) {
-		return
-	}
-
-	createdTodo := service.CreateTodo(todo, userID)
-
-	ctx.JSON(201, gin.H{
-		"status":       "created",
-		"created_todo": createdTodo,
-	})
-}
-
-func GetTodoByID(ctx *gin.Context) {
-	id, ok := utils.MustGetID(ctx, "id")
+	var todoReq models.CreateTodoRequest
+	ok = utils.MustBind(ctx, &todoReq)
 	if !ok {
 		return
 	}
 
-	todoByID, err := service.GetTodoByID(id)
-	if err != nil {
-		utils.WriteError(ctx, 404, err.Error())
+	todo := models.Todo{
+		Title:  todoReq.Title,
+		UserID: userID,
+		Done:   false,
+	}
+
+	if err := h.todoService.CreateTodo(ctx.Request.Context(), &todo); err != nil {
+		utils.WriteError(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(200, gin.H{
-		"todo": todoByID,
-	})
+	ctx.JSON(http.StatusCreated, todo)
 }
 
-func DeleteTodo(ctx *gin.Context) {
-	id, ok := utils.MustGetID(ctx, "id")
+func (h *TodoHandler) GetTodosByUserID(ctx *gin.Context) {
+	userID, ok := utils.MustGetID(ctx, "id")
 	if !ok {
 		return
 	}
 
-	err := service.DeleteTodoByID(id)
+	todos, err := h.todoService.GetTodosByUserID(ctx.Request.Context(), userID)
 	if err != nil {
-		utils.WriteError(ctx, 404, err.Error())
+		if errors.Is(err, models.ErrUserNotFound) {
+			utils.WriteError(ctx, http.StatusNotFound, models.ErrUserNotFound.Error())
+			return
+		}
+		utils.WriteError(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(200, gin.H{
-		"status":  "deleted",
-		"todo_id": id,
+	ctx.JSON(http.StatusOK, gin.H{
+		"todos": todos,
 	})
 }
 
-func PatchTodo(ctx *gin.Context) {
-	id, ok := utils.MustGetID(ctx, "id")
-	if !ok {
-		return
-	}
-
-	todoByID, err := service.GetTodoByID(id)
+func (h *TodoHandler) GetAllTodos(ctx *gin.Context) {
+	todos, err := h.todoService.GetAllTodos(ctx.Request.Context())
 	if err != nil {
-		utils.WriteError(ctx, 404, err.Error())
+		utils.WriteError(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	var patchReq models.PatchTodoRequest
-
-	if !utils.MustBind(ctx, &patchReq) {
-		return
-	}
-
-	if patchReq.Done == nil && patchReq.Title == nil {
-		utils.WriteError(ctx, 400, "no fields to update")
-		return
-	}
-
-	service.PatchTodo(todoByID, patchReq)
-
-	ctx.JSON(200, gin.H{
-		"status": "patched",
-	})
-}
-
-func PostUser(ctx *gin.Context) {
-	var req models.User
-
-	if !utils.MustBind(ctx, &req) {
-		return
-	}
-
-	createdUser := service.CreateUser(req)
-
-	ctx.JSON(201, gin.H{
-		"status":       "created",
-		"created_user": createdUser,
-	})
-}
-
-func GetUserByID(ctx *gin.Context) {
-	id, ok := utils.MustGetID(ctx, "id")
-	if !ok {
-		return
-	}
-
-	userByID, err := service.GetUserByID(id)
-	if err != nil {
-		utils.WriteError(ctx, 404, err.Error())
-		return
-	}
-
-	ctx.JSON(200, gin.H{
-		"user": userByID,
-	})
-}
-
-func GetUsers(ctx *gin.Context) {
-	users := service.GetAllUsers()
-	ctx.JSON(200, gin.H{
-		"users": users,
-	})
-}
-
-func GetTodosByUserID(ctx *gin.Context) {
-	id, ok := utils.MustGetID(ctx, "id")
-	if !ok {
-		return
-	}
-
-	todosByUserID, err := service.GetTodosByUserID(id)
-	if err != nil {
-		utils.WriteError(ctx, 404, err.Error())
-		return
-	}
-
-	ctx.JSON(200, gin.H{
-		"todos": todosByUserID,
+	ctx.JSON(http.StatusOK, gin.H{
+		"todos": todos,
 	})
 }

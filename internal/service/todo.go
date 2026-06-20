@@ -1,110 +1,35 @@
 package service
 
 import (
-	"errors"
+	"context"
 	"todo-api/internal/models"
+	"todo-api/internal/repository"
 )
 
-func GetAllTodos() []models.Todo {
-	return models.Todos
+type TodoService struct {
+	todoRepo *repository.TodoRepository
 }
 
-func CreateTodo(todo models.CreateTodoRequest, userID int) models.Todo {
-	newTodo := models.Todo{
-		ID:     models.NextID,
-		Title:  todo.Title,
-		Done:   false,
-		UserID: userID,
-	}
-
-	models.Todos = append(models.Todos, newTodo)
-
-	models.NextID++
-
-	return newTodo
+func NewTodoService(todoRepo *repository.TodoRepository) *TodoService {
+	return &TodoService{todoRepo: todoRepo}
 }
 
-func GetTodoByID(id int) (*models.Todo, error) {
-	for i := range models.Todos {
-		if models.Todos[i].ID == id {
-			return &models.Todos[i], nil
-		}
+func (s *TodoService) CreateTodo(ctx context.Context, todo *models.Todo) error {
+	if todo.UserID <= 0 {
+		return models.ErrUserNotFound
 	}
 
-	return nil, errors.New("Todo не найдено")
+	return s.todoRepo.Create(ctx, todo)
 }
 
-func DeleteTodoByID(id int) error {
-	for i := range models.Todos {
-		if models.Todos[i].ID == id {
-			models.Todos = append(models.Todos[:i], models.Todos[i+1:]...)
-			return nil
-		}
+func (s *TodoService) GetTodosByUserID(ctx context.Context, userID int) ([]models.Todo, error) {
+	if userID <= 0 {
+		return nil, models.ErrUserNotFound
 	}
 
-	return errors.New("Todo не найдено")
+	return s.todoRepo.GetTodosByUserID(ctx, userID)
 }
 
-func PatchTodo(todoByID *models.Todo, newReq models.PatchTodoRequest) {
-	if newReq.Done != nil {
-		todoByID.Done = *newReq.Done
-	}
-
-	if newReq.Title != nil {
-		todoByID.Title = *newReq.Title
-	}
-}
-
-func GetTodosByUserID(id int) ([]models.Todo, error) {
-	err := CheckUserID(id)
-	if err != nil {
-		return nil, err
-	}
-
-	var todosByUserID []models.Todo
-
-	for i := range models.Todos {
-		if models.Todos[i].UserID == id {
-			todosByUserID = append(todosByUserID, models.Todos[i])
-		}
-	}
-
-	return todosByUserID, nil
-}
-
-func CreateUser(user models.User) models.User {
-	newUser := models.User{
-		ID:   models.NextUserID,
-		Name: user.Name,
-	}
-
-	models.Users = append(models.Users, newUser)
-
-	models.NextUserID++
-
-	return newUser
-}
-
-func GetUserByID(id int) (*models.User, error) {
-	for i := range models.Users {
-		if models.Users[i].ID == id {
-			return &models.Users[i], nil
-		}
-	}
-
-	return nil, errors.New("User не найден")
-}
-
-func GetAllUsers() []models.User {
-	return models.Users
-}
-
-func CheckUserID(id int) error {
-	for i := range models.Users {
-		if models.Users[i].ID == id {
-			return nil
-		}
-	}
-
-	return errors.New("User не найден")
+func (s *TodoService) GetAllTodos(ctx context.Context) ([]models.Todo, error) {
+	return s.todoRepo.GetAllTodos(ctx)
 }
