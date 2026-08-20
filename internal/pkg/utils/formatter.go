@@ -19,7 +19,9 @@ func FormatValidationErrors(err error) map[string]string {
 			case "required":
 				fields[field] = "is required"
 			case "min":
-				fields[field] = "must not be empty"
+				fields[field] = "must be at least " + fe.Param() + " characters long"
+			case "email":
+				fields[field] = "is invalid"
 			default:
 				fields[field] = "invalid value"
 			}

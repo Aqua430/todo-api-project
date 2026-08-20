@@ -1,174 +1,471 @@
-package handlers
+package handlers_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"todo-api/internal/handlers"
 	"todo-api/internal/models"
+	"todo-api/internal/pkg/apperrors"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestGetTodosHandler(t *testing.T) {
+type mockTodoService struct {
+	createTodoFunc      func(ctx context.Context, userID int, title string) (int, error)
+	getAllTodosFunc     func(ctx context.Context, userID int) ([]models.TodoItem, error)
+	deleteTodoFunc      func(ctx context.Context, todoID, userID int) error
+	toggleCompletedFunc func(ctx context.Context, todoID, userID int) error
+	updateTodoTitleFunc func(ctx context.Context, todoID, userID int, todoTitle string) error
+}
+
+func (m *mockTodoService) CreateTodo(ctx context.Context, userID int, title string) (int, error) {
+	return m.createTodoFunc(ctx, userID, title)
+}
+
+func (m *mockTodoService) GetAllTodos(ctx context.Context, userID int) ([]models.TodoItem, error) {
+	return m.getAllTodosFunc(ctx, userID)
+}
+
+func (m *mockTodoService) DeleteTodo(ctx context.Context, todoID, userID int) error {
+	return m.deleteTodoFunc(ctx, todoID, userID)
+}
+
+func (m *mockTodoService) ToggleCompleted(ctx context.Context, todoID, userID int) error {
+	return m.toggleCompletedFunc(ctx, todoID, userID)
+}
+
+func (m *mockTodoService) UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error {
+	return m.updateTodoTitleFunc(ctx, todoID, userID, todoTitle)
+}
+
+func TestTodoHandler_CreateTodo(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	models.Todos = []models.Todo{{
-		ID:    1,
-		Title: "Тестовое задание",
-		Done:  false,
-	}}
-
-	r := gin.New()
-	r.GET("/todos", GetTodos)
-
-	req, _ := http.NewRequest("GET", "/todos", nil)
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, but received %d", w.Code)
+	type testCase struct {
+		name           string
+		setupContext   func(c *gin.Context)
+		bodyJSON       string
+		mockBehavior   func(t *testing.T, m *mockTodoService)
+		expectedStatus int
+		expectedBody   string
 	}
 
-	var response map[string][]models.Todo
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	if err != nil {
-		t.Fatalf("Failed parsing JSON of the object: %v", err)
+	tests := []testCase{
+		{
+			name: "Success creation",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+			},
+			bodyJSON: `{"title": "Купить хлеб"}`,
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.createTodoFunc = func(ctx context.Context, userID int, title string) (int, error) {
+					assert.Equal(t, 1, userID)
+					assert.Equal(t, "Купить хлеб", title)
+					return 42, nil
+				}
+			},
+			expectedStatus: http.StatusCreated,
+			expectedBody:   `{"id":42}`,
+		},
+		{
+			name:           "Unauthorized - Missing userID in context",
+			setupContext:   func(c *gin.Context) {},
+			bodyJSON:       `{"title": "Купить хлеб"}`,
+			mockBehavior:   func(t *testing.T, m *mockTodoService) {},
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   `{"error":"internal server error"}`,
+		},
+		{
+			name: "Validation error",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+			},
+			bodyJSON:       `{"title": ""}`,
+			mockBehavior:   func(t *testing.T, m *mockTodoService) {},
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   `{"error": "validation error","fields":{"title":"is required"}}`,
+		},
+		{
+			name: "Internal service error",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+			},
+			bodyJSON: `{"title": "Купить хлеб"}`,
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.createTodoFunc = func(ctx context.Context, userID int, title string) (int, error) {
+					return 0, models.ErrInternal
+				}
+			},
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   `{"error": "internal server error"}`,
+		},
 	}
 
-	todos := response["all todos"]
-	if len(todos) != 1 || todos[0].Title != "Тестовое задание" {
-		t.Errorf("Handler responded incorrect data: %v", response)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := &mockTodoService{}
+			tc.mockBehavior(t, mockSvc)
+
+			handler := handlers.NewTodoHandler(mockSvc)
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			if tc.setupContext != nil {
+				tc.setupContext(c)
+			}
+
+			req := httptest.NewRequest("POST", "/api/v1/todos", bytes.NewBufferString(tc.bodyJSON))
+			req.Header.Set("Content-Type", "application/json")
+			c.Request = req
+
+			handler.CreateTodo(c)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			assert.JSONEq(t, tc.expectedBody, w.Body.String())
+		})
 	}
 }
 
-func TestPostTodoHandler(t *testing.T) {
+func TestTodoHandler_GetAllTodos(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	models.Todos = []models.Todo{}
-	models.NextID = 1
+	fixedTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	r := gin.New()
-	r.POST("/todos", PostTodo)
-
-	jsonBody := []byte(`{"title": "Тестовое задание"}`)
-
-	req, _ := http.NewRequest("POST", "/todos", bytes.NewBuffer(jsonBody))
-
-	req.Header.Set("Content-Type", "application/json")
-
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status 201, received %d", w.Code)
+	type testCase struct {
+		name           string
+		setupContext   func(c *gin.Context)
+		mockBehavior   func(t *testing.T, m *mockTodoService)
+		expectedStatus int
+		expectedBody   string
 	}
 
-	var response struct {
-		Status      string      `json:"status"`
-		CreatedTodo models.Todo `json:"created_todo"`
+	tests := []testCase{
+		{
+			name: "Success fetching todos",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+			},
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.getAllTodosFunc = func(ctx context.Context, userID int) ([]models.TodoItem, error) {
+					assert.Equal(t, 1, userID)
+					return []models.TodoItem{
+						{
+							ID:        1,
+							UserID:    1,
+							Title:     "Купить хлеб",
+							Completed: false,
+							CreatedAt: fixedTime,
+						},
+					}, nil
+				}
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   `[{"id":1,"user_id":1,"title":"Купить хлеб","completed":false,"created_at":"2026-01-01T00:00:00Z"}]`,
+		},
+		{
+			name:           "Context error",
+			setupContext:   func(c *gin.Context) {},
+			mockBehavior:   func(t *testing.T, m *mockTodoService) {},
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   `{"error": "internal server error"}`,
+		},
+		{
+			name: "Internal error",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+			},
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.getAllTodosFunc = func(ctx context.Context, userID int) ([]models.TodoItem, error) {
+					return nil, models.ErrInternal
+				}
+			},
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   `{"error": "internal server error"}`,
+		},
 	}
 
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	if err != nil {
-		t.Fatalf("Failed parsing JSON of the object: %v", err)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := &mockTodoService{}
+			tc.mockBehavior(t, mockSvc)
 
-	if response.Status != "created" {
-		t.Errorf("Expected Status 'created', but received '%s'", response.Status)
-	}
+			handler := handlers.NewTodoHandler(mockSvc)
 
-	if response.CreatedTodo.ID != 1 {
-		t.Errorf("Expected ID 1, but received %d", response.CreatedTodo.ID)
-	}
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
 
-	if response.CreatedTodo.Title != "Тестовое задание" {
-		t.Errorf("Expected Title 'Тестовое задание', but received '%s'", response.CreatedTodo.Title)
-	}
+			if tc.setupContext != nil {
+				tc.setupContext(c)
+			}
 
-	if response.CreatedTodo.Done != false {
-		t.Errorf("Expected Done false, but received %t", response.CreatedTodo.Done)
+			req := httptest.NewRequest("GET", "/api/v1/todos", nil)
+			c.Request = req
+
+			handler.GetAllTodos(c)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			assert.JSONEq(t, tc.expectedBody, w.Body.String())
+		})
 	}
 }
 
-func TestGetTodoByIDHandler(t *testing.T) {
+func TestTodoHandler_DeleteTodo(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	models.Todos = []models.Todo{{
-		ID:    1,
-		Title: "Тестовое задание 1",
-		Done:  false,
-	}, {
-		ID:    2,
-		Title: "Тестовое задание 2",
-		Done:  false,
-	}}
-
-	r := gin.New()
-
-	r.GET("/todos/:id", GetTodoByID)
-
-	req, _ := http.NewRequest("GET", "/todos/2", nil)
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-
-	t.Log(w.Body.String())
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, but received %d", w.Code)
+	type testCase struct {
+		name           string
+		setupContext   func(c *gin.Context)
+		mockBehavior   func(t *testing.T, m *mockTodoService)
+		expectedStatus int
+		expectedBody   string
 	}
 
-	var response map[string]models.Todo
-
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	if err != nil {
-		t.Fatalf("Failed parsing JSON of the object: %v", err)
+	tests := []testCase{
+		{
+			name: "Success deletion",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Params = []gin.Param{{Key: "id", Value: "42"}}
+			},
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.deleteTodoFunc = func(ctx context.Context, todoID, userID int) error {
+					assert.Equal(t, 1, userID)
+					assert.Equal(t, 42, todoID)
+					return nil
+				}
+			},
+			expectedStatus: http.StatusNoContent,
+			expectedBody:   "",
+		},
+		{
+			name: "Invalid ID parameter",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Params = []gin.Param{{Key: "id", Value: "invalid"}}
+			},
+			mockBehavior:   func(t *testing.T, m *mockTodoService) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error": "invalid id parameter"}`,
+		},
+		{
+			name: "Context error",
+			setupContext: func(c *gin.Context) {
+				c.Params = []gin.Param{{Key: "id", Value: "42"}}
+			},
+			mockBehavior:   func(t *testing.T, m *mockTodoService) {},
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   `{"error": "internal server error"}`,
+		},
+		{
+			name: "Todo not found",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Params = []gin.Param{{Key: "id", Value: "42"}}
+			},
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.deleteTodoFunc = func(ctx context.Context, todoID, userID int) error {
+					return apperrors.NewNotFoundError("task is not found or does not belongs to you")
+				}
+			},
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   `{"error": "task is not found or does not belongs to you"}`,
+		},
 	}
 
-	todo := response["todo"]
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := &mockTodoService{}
+			tc.mockBehavior(t, mockSvc)
 
-	if todo.ID != 2 {
-		t.Errorf("Expected ID 2, but got %d", todo.ID)
-	}
-	if todo.Title != "Тестовое задание 2" {
-		t.Errorf("Expected Title 'Тестовое задание 2', but got '%s'", todo.Title)
-	}
-	if todo.Done != false {
-		t.Errorf("Expected Done to be false, but got %t", todo.Done)
+			handler := handlers.NewTodoHandler(mockSvc)
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			if tc.setupContext != nil {
+				tc.setupContext(c)
+			}
+
+			req := httptest.NewRequest("DELETE", "/api/v1/todos/42", nil)
+			c.Request = req
+
+			handler.DeleteTodo(c)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			if tc.expectedBody == "" {
+				assert.Empty(t, w.Body.String())
+			} else {
+				assert.JSONEq(t, tc.expectedBody, w.Body.String())
+			}
+		})
 	}
 }
 
-func TestGetTodoById_NotFound(t *testing.T) {
+func TestTodoHandler_ToggleCompleted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	models.Todos = []models.Todo{}
-
-	r := gin.New()
-	r.GET("todos/:id", GetTodoByID)
-
-	req, _ := http.NewRequest("GET", "/todos/999", nil)
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-
-	t.Log(w.Body.String())
-
-	if w.Code != http.StatusNotFound {
-		t.Errorf("Expected status 404, but got %d", w.Code)
+	type testCase struct {
+		name           string
+		setupContext   func(c *gin.Context)
+		mockBehavior   func(t *testing.T, m *mockTodoService)
+		expectedStatus int
+		expectedBody   string
 	}
 
-	var response map[string]string
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	if err != nil {
-		t.Fatalf("Failed to parse JSON of response: %v", err)
+	tests := []testCase{
+		{
+			name: "Success toggle",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Params = []gin.Param{{Key: "id", Value: "42"}}
+			},
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.toggleCompletedFunc = func(ctx context.Context, todoID, userID int) error {
+					assert.Equal(t, 1, userID)
+					assert.Equal(t, 42, todoID)
+					return nil
+				}
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   "",
+		},
+		{
+			name: "Todo not found",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Params = []gin.Param{{Key: "id", Value: "42"}}
+			},
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.toggleCompletedFunc = func(ctx context.Context, todoID, userID int) error {
+					return apperrors.NewNotFoundError("task is not found or does not belongs to you")
+				}
+			},
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   `{"error": "task is not found or does not belongs to you"}`,
+		},
 	}
 
-	expectedError := "Todo не найдено"
-	if response["error"] != expectedError {
-		t.Errorf("Expected text error '%s', but got '%s'", expectedError, response["error"])
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := &mockTodoService{}
+			tc.mockBehavior(t, mockSvc)
+
+			handler := handlers.NewTodoHandler(mockSvc)
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			if tc.setupContext != nil {
+				tc.setupContext(c)
+			}
+
+			req := httptest.NewRequest("PATCH", "/api/v1/todos/42", nil)
+			c.Request = req
+
+			handler.ToggleCompleted(c)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			if tc.expectedBody == "" {
+				assert.Empty(t, w.Body.String())
+			} else {
+				assert.JSONEq(t, tc.expectedBody, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestTodoHandler_UpdateTodoTitle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	type testCase struct {
+		name           string
+		setupContext   func(c *gin.Context)
+		bodyJSON       string
+		mockBehavior   func(t *testing.T, m *mockTodoService)
+		expectedStatus int
+		expectedBody   string
+	}
+
+	tests := []testCase{
+		{
+			name: "Success title update",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Params = []gin.Param{{Key: "id", Value: "42"}}
+			},
+			bodyJSON: `{"title": "Купить молоко"}`,
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.updateTodoTitleFunc = func(ctx context.Context, todoID, userID int, title string) error {
+					assert.Equal(t, 1, userID)
+					assert.Equal(t, 42, todoID)
+					assert.Equal(t, "Купить молоко", title)
+					return nil
+				}
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   "",
+		},
+		{
+			name: "Validation error",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Params = []gin.Param{{Key: "id", Value: "42"}}
+			},
+			bodyJSON:       `{"title": ""}`,
+			mockBehavior:   func(t *testing.T, m *mockTodoService) {},
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   `{"error": "validation error","fields":{"title":"is required"}}`,
+		},
+		{
+			name: "Todo not found",
+			setupContext: func(c *gin.Context) {
+				c.Set("userID", 1)
+				c.Params = []gin.Param{{Key: "id", Value: "42"}}
+			},
+			bodyJSON: `{"title": "Купить хлеб"}`,
+			mockBehavior: func(t *testing.T, m *mockTodoService) {
+				m.updateTodoTitleFunc = func(ctx context.Context, todoID, userID int, title string) error {
+					return apperrors.NewNotFoundError("task is not found or does not belongs to you")
+				}
+			},
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   `{"error": "task is not found or does not belongs to you"}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := &mockTodoService{}
+			tc.mockBehavior(t, mockSvc)
+
+			handler := handlers.NewTodoHandler(mockSvc)
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			if tc.setupContext != nil {
+				tc.setupContext(c)
+			}
+
+			req := httptest.NewRequest("PUT", "/api/v1/todos/42", bytes.NewBufferString(tc.bodyJSON))
+			req.Header.Set("Content-Type", "application/json")
+			c.Request = req
+
+			handler.UpdateTodoTitle(c)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+			if tc.expectedBody == "" {
+				assert.Empty(t, w.Body.String())
+			} else {
+				assert.JSONEq(t, tc.expectedBody, w.Body.String())
+			}
+		})
 	}
 }

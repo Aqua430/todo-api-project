@@ -2,63 +2,61 @@ package service
 
 import (
 	"context"
+	"errors"
 	"todo-api/internal/models"
-	"todo-api/internal/repository"
+	"todo-api/internal/pkg/apperrors"
+	"todo-api/internal/pkg/hash"
+	"todo-api/internal/pkg/jwt"
 )
 
-type UserService struct {
-	userRepo *repository.UserRepository
+type UserRepositoryInterface interface {
+	Create(ctx context.Context, email, passwordHash string) (int, error)
+	GetByEmail(ctx context.Context, email string) (models.User, error)
 }
 
-func NewUserService(userRepo *repository.UserRepository) *UserService {
-	return &UserService{
-		userRepo: userRepo,
-	}
+type AuthService struct {
+	repo UserRepositoryInterface
 }
 
-func (s *UserService) CreateUser(ctx context.Context, user *models.User) error {
-	err := s.userRepo.Create(ctx, user)
+func NewAuthService(repo UserRepositoryInterface) *AuthService {
+	return &AuthService{repo: repo}
+}
+
+func (s *AuthService) SignUp(ctx context.Context, email, password string) (int, error) {
+	hashedPassword, err := hash.HashPassword(password)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
-}
-
-func (s *UserService) GetUsers(ctx context.Context) ([]models.User, error) {
-	return s.userRepo.GetAll(ctx)
-}
-
-func (s *UserService) GetUserByID(ctx context.Context, id int) (*models.User, error) {
-	if id <= 0 {
-		return nil, models.ErrUserNotFound
-	}
-
-	return s.userRepo.GetUserByID(ctx, id)
-}
-
-func (s *UserService) DeleteUser(ctx context.Context, id int) error {
-	if id <= 0 {
-		return models.ErrUserNotFound
-	}
-
-	return s.userRepo.DeleteUserByID(ctx, id)
-}
-
-func (s *UserService) UpdateUser(ctx context.Context, id int, newName string) (*models.User, error) {
-	if id <= 0 {
-		return nil, models.ErrUserNotFound
-	}
-
-	user := &models.User{
-		ID:   id,
-		Name: newName,
-	}
-
-	err := s.userRepo.UpdateUserByID(ctx, user)
+	id, err := s.repo.Create(ctx, email, hashedPassword)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, models.ErrEmailAlreadyExists) {
+			return 0, apperrors.NewBadRequestError("email is already taken")
+		}
+		return 0, err
 	}
 
-	return user, nil
+	return id, nil
+}
+
+func (s *AuthService) SignIn(ctx context.Context, email, password string) (string, error) {
+	user, err := s.repo.GetByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return "", apperrors.NewUnauthorizedError("invalid email or password")
+		}
+		return "", err
+	}
+
+	ok := hash.CheckPasswordHash(password, user.PasswordHash)
+	if !ok {
+		return "", apperrors.NewUnauthorizedError("invalid email or password")
+	}
+
+	token, err := jwt.GenerateToken(user.ID)
+	if err != nil {
+		return "", err
+	}
+
+	return token, nil
 }

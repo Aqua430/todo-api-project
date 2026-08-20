@@ -15,19 +15,20 @@ func NewTodoRepository(db *pgxpool.Pool) *TodoRepository {
 	return &TodoRepository{db: db}
 }
 
-func (r *TodoRepository) Create(ctx context.Context, todo *models.Todo) error {
-	query := "INSERT INTO todos (user_id, title, done) VALUES ($1, $2, $3) RETURNING id"
+func (r *TodoRepository) Create(ctx context.Context, userID int, title string) (int, error) {
+	var id int
+	query := "INSERT INTO todos (user_id, title) VALUES ($1, $2) RETURNING id"
 
-	err := r.db.QueryRow(ctx, query, todo.UserID, todo.Title, todo.Done).Scan(&todo.ID)
+	err := r.db.QueryRow(ctx, query, userID, title).Scan(&id)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return id, nil
 }
 
-func (r *TodoRepository) GetTodosByUserID(ctx context.Context, userID int) ([]models.Todo, error) {
-	query := "SELECT id, title, done, user_id FROM todos WHERE user_id = $1"
+func (r *TodoRepository) GetAll(ctx context.Context, userID int) ([]models.TodoItem, error) {
+	query := "SELECT id, user_id, title, completed, created_at FROM todos WHERE user_id = $1 ORDER BY created_at DESC"
 
 	rows, err := r.db.Query(ctx, query, userID)
 	if err != nil {
@@ -35,16 +36,15 @@ func (r *TodoRepository) GetTodosByUserID(ctx context.Context, userID int) ([]mo
 	}
 	defer rows.Close()
 
-	var todos []models.Todo
+	todos := make([]models.TodoItem, 0)
 
 	for rows.Next() {
-		var todo models.Todo
-
-		if err := rows.Scan(&todo.ID, &todo.Title, &todo.Done, &todo.UserID); err != nil {
+		var item models.TodoItem
+		err := rows.Scan(&item.ID, &item.UserID, &item.Title, &item.Completed, &item.CreatedAt)
+		if err != nil {
 			return nil, err
 		}
-
-		todos = append(todos, todo)
+		todos = append(todos, item)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -54,29 +54,47 @@ func (r *TodoRepository) GetTodosByUserID(ctx context.Context, userID int) ([]mo
 	return todos, nil
 }
 
-func (r *TodoRepository) GetAllTodos(ctx context.Context) ([]models.Todo, error) {
-	query := "SELECT id, title, done, user_id FROM todos"
+func (r *TodoRepository) DeleteTodo(ctx context.Context, todoID, userID int) error {
+	query := "DELETE FROM todos WHERE id = $1 AND user_id = $2"
 
-	rows, err := r.db.Query(ctx, query)
+	result, err := r.db.Exec(ctx, query, todoID, userID)
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var todos []models.Todo
-	for rows.Next() {
-		var todo models.Todo
-
-		if err := rows.Scan(&todo.ID, &todo.Title, &todo.Done, &todo.UserID); err != nil {
-			return nil, err
-		}
-
-		todos = append(todos, todo)
+		return err
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if result.RowsAffected() == 0 {
+		return models.ErrTodoNotFound
 	}
 
-	return todos, nil
+	return nil
+}
+
+func (r *TodoRepository) ToggleCompleted(ctx context.Context, todoID, userID int) error {
+	query := "UPDATE todos SET completed = NOT completed WHERE id = $1 AND user_id = $2"
+
+	result, err := r.db.Exec(ctx, query, todoID, userID)
+	if err != nil {
+		return err
+	}
+
+	if result.RowsAffected() == 0 {
+		return models.ErrTodoNotFound
+	}
+
+	return nil
+}
+
+func (r *TodoRepository) UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error {
+	query := "UPDATE todos SET title = $1 WHERE id = $2 AND user_id = $3"
+
+	result, err := r.db.Exec(ctx, query, todoTitle, todoID, userID)
+	if err != nil {
+		return err
+	}
+
+	if result.RowsAffected() == 0 {
+		return models.ErrTodoNotFound
+	}
+
+	return nil
 }

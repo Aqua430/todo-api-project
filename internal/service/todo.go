@@ -3,33 +3,55 @@ package service
 import (
 	"context"
 	"todo-api/internal/models"
-	"todo-api/internal/repository"
+	"todo-api/internal/pkg/apperrors"
+
+	"errors"
 )
 
+type TodoRepositoryInterface interface {
+	Create(ctx context.Context, userID int, title string) (int, error)
+	GetAll(ctx context.Context, userID int) ([]models.TodoItem, error)
+	DeleteTodo(ctx context.Context, todoID, userID int) error
+	ToggleCompleted(ctx context.Context, todoID, userID int) error
+	UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error
+}
+
 type TodoService struct {
-	todoRepo *repository.TodoRepository
+	repo TodoRepositoryInterface
 }
 
-func NewTodoService(todoRepo *repository.TodoRepository) *TodoService {
-	return &TodoService{todoRepo: todoRepo}
+func NewTodoService(repo TodoRepositoryInterface) *TodoService {
+	return &TodoService{repo: repo}
 }
 
-func (s *TodoService) CreateTodo(ctx context.Context, todo *models.Todo) error {
-	if todo.UserID <= 0 {
-		return models.ErrUserNotFound
+func (s *TodoService) CreateTodo(ctx context.Context, userID int, title string) (int, error) {
+	return s.repo.Create(ctx, userID, title)
+}
+
+func (s *TodoService) GetAllTodos(ctx context.Context, userID int) ([]models.TodoItem, error) {
+	return s.repo.GetAll(ctx, userID)
+}
+
+func (s *TodoService) DeleteTodo(ctx context.Context, todoID, userID int) error {
+	err := s.repo.DeleteTodo(ctx, todoID, userID)
+	if errors.Is(err, models.ErrTodoNotFound) {
+		return apperrors.NewNotFoundError(models.ErrTodoNotFound.Error())
 	}
-
-	return s.todoRepo.Create(ctx, todo)
+	return err
 }
 
-func (s *TodoService) GetTodosByUserID(ctx context.Context, userID int) ([]models.Todo, error) {
-	if userID <= 0 {
-		return nil, models.ErrUserNotFound
+func (s *TodoService) ToggleCompleted(ctx context.Context, todoID, userID int) error {
+	err := s.repo.ToggleCompleted(ctx, todoID, userID)
+	if errors.Is(err, models.ErrTodoNotFound) {
+		return apperrors.NewNotFoundError(models.ErrTodoNotFound.Error())
 	}
-
-	return s.todoRepo.GetTodosByUserID(ctx, userID)
+	return err
 }
 
-func (s *TodoService) GetAllTodos(ctx context.Context) ([]models.Todo, error) {
-	return s.todoRepo.GetAllTodos(ctx)
+func (s *TodoService) UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error {
+	err := s.repo.UpdateTodoTitle(ctx, todoID, userID, todoTitle)
+	if errors.Is(err, models.ErrTodoNotFound) {
+		return apperrors.NewNotFoundError(models.ErrTodoNotFound.Error())
+	}
+	return err
 }

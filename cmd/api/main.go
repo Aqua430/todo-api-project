@@ -1,9 +1,16 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"todo-api/internal/config"
 	"todo-api/internal/database"
 	"todo-api/internal/handlers"
 	"todo-api/internal/logger"
@@ -13,48 +20,62 @@ import (
 	"todo-api/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 )
 
 func main() {
-	err := godotenv.Load()
+	cfg := config.MustLoad()
+
+	logger.InitLogger()
+	slog.Info("configuration successfully loaded", slog.String("env", cfg.Env))
+
+	dbPool, err := database.NewPostgresPool(cfg.Database.URL)
 	if err != nil {
-		log.Fatal("Ошибка загрузки файла .env")
+		slog.Error("failed to initialize database pool", "error", err)
+		os.Exit(1)
 	}
 
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		log.Fatal("Переменная DATABASE_URL не найдена в окружении")
-	}
-
-	fmt.Println("[INIT] Конфигурация успешно загружена")
-
-	dbPool, err := database.NewPostgresPool(connStr)
-	if err != nil {
-		log.Fatalf("[FATAL] Ошибка инициализации базы данных: %v\n", err)
-	}
-	defer dbPool.Close()
-
-	fmt.Println("[INIT] Успешное подключение к PostgreSQL")
+	slog.Info("successfully connected to PostgreSQL")
 
 	userRepo := repository.NewUserRepository(dbPool)
-	userService := service.NewUserService(userRepo)
-	userHandler := handlers.NewUserHandler(userService)
+	authService := service.NewAuthService(userRepo)
+	authHandler := handlers.NewAuthHandler(authService)
 
 	todoRepo := repository.NewTodoRepository(dbPool)
 	todoService := service.NewTodoService(todoRepo)
 	todoHandler := handlers.NewTodoHandler(todoService)
 
-	logger.InitLogger()
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.StrucutredLoggerMiddleware())
 
-	router.SetupRouter(r, userHandler, todoHandler)
+	router.SetupRouter(r, authHandler, todoHandler)
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	srv := &http.Server{
+		Addr:    ":" + cfg.HTTPServer.Port,
+		Handler: r,
 	}
-	r.Run(":" + port)
+
+	go func() {
+		slog.Info("starting server", slog.String("port", cfg.HTTPServer.Port))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server crashed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("server forced to shutdown", "error", err)
+	}
+
+	dbPool.Close()
+	slog.Info("server stopped gracefully")
 }

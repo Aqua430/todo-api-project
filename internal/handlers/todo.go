@@ -1,78 +1,131 @@
 package handlers
 
 import (
-	"errors"
+	"context"
 	"net/http"
 	"todo-api/internal/models"
-	"todo-api/internal/service"
-	"todo-api/internal/utils"
+	"todo-api/internal/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
-type TodoHandler struct {
-	todoService *service.TodoService
+type TodoService interface {
+	CreateTodo(ctx context.Context, userID int, title string) (int, error)
+	GetAllTodos(ctx context.Context, userID int) ([]models.TodoItem, error)
+	DeleteTodo(ctx context.Context, todoID, userID int) error
+	ToggleCompleted(ctx context.Context, todoID, userID int) error
+	UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error
 }
 
-func NewTodoHandler(todoService *service.TodoService) *TodoHandler {
+type TodoHandler struct {
+	todoService TodoService
+}
+
+func NewTodoHandler(todoService TodoService) *TodoHandler {
 	return &TodoHandler{todoService: todoService}
 }
 
-func (h *TodoHandler) CreateTodo(ctx *gin.Context) {
-	userID, ok := utils.MustGetID(ctx, "id")
-	if !ok {
+func (h *TodoHandler) CreateTodo(c *gin.Context) {
+	userID, err := utils.GetUserID(c)
+	if err != nil {
+		utils.HandleError(c, err)
 		return
 	}
 
-	var todoReq models.CreateTodoRequest
-	ok = utils.MustBind(ctx, &todoReq)
-	if !ok {
+	var input models.CreateTodoInput
+	if !utils.MustBind(c, &input) {
 		return
 	}
 
-	todo := models.Todo{
-		Title:  todoReq.Title,
-		UserID: userID,
-		Done:   false,
-	}
-
-	if err := h.todoService.CreateTodo(ctx.Request.Context(), &todo); err != nil {
-		utils.WriteError(ctx, http.StatusInternalServerError, err.Error())
+	id, err := h.todoService.CreateTodo(c.Request.Context(), userID, input.Title)
+	if err != nil {
+		utils.HandleError(c, err)
 		return
 	}
 
-	ctx.JSON(http.StatusCreated, todo)
+	c.JSON(http.StatusCreated, gin.H{"id": id})
 }
 
-func (h *TodoHandler) GetTodosByUserID(ctx *gin.Context) {
-	userID, ok := utils.MustGetID(ctx, "id")
+func (h *TodoHandler) GetAllTodos(c *gin.Context) {
+	userID, err := utils.GetUserID(c)
+	if err != nil {
+		utils.HandleError(c, err)
+		return
+	}
+
+	todos, err := h.todoService.GetAllTodos(c.Request.Context(), userID)
+	if err != nil {
+		utils.HandleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, todos)
+}
+
+func (h *TodoHandler) DeleteTodo(c *gin.Context) {
+	todoID, ok := utils.MustGetID(c, "id")
 	if !ok {
 		return
 	}
 
-	todos, err := h.todoService.GetTodosByUserID(ctx.Request.Context(), userID)
+	userID, err := utils.GetUserID(c)
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			utils.WriteError(ctx, http.StatusNotFound, models.ErrUserNotFound.Error())
-			return
-		}
-		utils.WriteError(ctx, http.StatusInternalServerError, err.Error())
+		utils.HandleError(c, err)
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"todos": todos,
-	})
+	if err := h.todoService.DeleteTodo(c.Request.Context(), todoID, userID); err != nil {
+		utils.HandleError(c, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+	c.Writer.WriteHeaderNow()
 }
 
-func (h *TodoHandler) GetAllTodos(ctx *gin.Context) {
-	todos, err := h.todoService.GetAllTodos(ctx.Request.Context())
-	if err != nil {
-		utils.WriteError(ctx, http.StatusInternalServerError, err.Error())
+func (h *TodoHandler) ToggleCompleted(c *gin.Context) {
+	todoID, ok := utils.MustGetID(c, "id")
+	if !ok {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"todos": todos,
-	})
+	userID, err := utils.GetUserID(c)
+	if err != nil {
+		utils.HandleError(c, err)
+		return
+	}
+
+	if err := h.todoService.ToggleCompleted(c.Request.Context(), todoID, userID); err != nil {
+		utils.HandleError(c, err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+	c.Writer.WriteHeaderNow()
+}
+
+func (h *TodoHandler) UpdateTodoTitle(c *gin.Context) {
+	todoID, ok := utils.MustGetID(c, "id")
+	if !ok {
+		return
+	}
+
+	userID, err := utils.GetUserID(c)
+	if err != nil {
+		utils.HandleError(c, err)
+		return
+	}
+
+	var input models.UpdateTodoInput
+	if !utils.MustBind(c, &input) {
+		return
+	}
+
+	if err := h.todoService.UpdateTodoTitle(c.Request.Context(), todoID, userID, input.Title); err != nil {
+		utils.HandleError(c, err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+	c.Writer.WriteHeaderNow()
 }
