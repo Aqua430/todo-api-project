@@ -11,6 +11,7 @@ type Config struct {
 	Env string `env:"ENV" env-default:"local"`
 	HTTPServer
 	Database
+	JWT
 }
 
 type HTTPServer struct {
@@ -19,6 +20,11 @@ type HTTPServer struct {
 
 type Database struct {
 	URL string `env:"DATABASE_URL" env-required:"true"`
+}
+
+type JWT struct {
+	Secret   string `env:"JWT_SECRET" env-required:"true"`
+	TTLHours int    `env:"JWT_TTL_HOURS" env-default:"24"`
 }
 
 var (
