@@ -7,8 +7,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtSecret = []byte("super-secret-key-that-nobody-can-guess-123456")
-
 type CustomClaims struct {
 	UserID int `json:"user_id"`
 	jwt.RegisteredClaims
