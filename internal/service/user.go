@@ -16,10 +16,11 @@ type UserRepositoryInterface interface {
 
 type AuthService struct {
 	repo UserRepositoryInterface
+	jwt  *jwt.JWTManager
 }
 
-func NewAuthService(repo UserRepositoryInterface) *AuthService {
-	return &AuthService{repo: repo}
+func NewAuthService(repo UserRepositoryInterface, jwt *jwt.JWTManager) *AuthService {
+	return &AuthService{repo: repo, jwt: jwt}
 }
 
 func (s *AuthService) SignUp(ctx context.Context, email, password string) (int, error) {
@@ -53,7 +54,7 @@ func (s *AuthService) SignIn(ctx context.Context, email, password string) (strin
 		return "", apperrors.NewUnauthorizedError("invalid email or password")
 	}
 
-	token, err := jwt.GenerateToken(user.ID)
+	token, err := s.jwt.GenerateToken(user.ID)
 	if err != nil {
 		return "", err
 	}

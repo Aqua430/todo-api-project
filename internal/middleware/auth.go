@@ -12,7 +12,7 @@ const (
 	userCtxKey = "userID"
 )
 
-func AuthMiddleware() gin.HandlerFunc {
+func AuthMiddleware(jwtManager *jwt.JWTManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -28,7 +28,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		tokenString := parts[1]
 
-		userID, err := jwt.ParseToken(tokenString)
+		userID, err := jwtManager.ParseToken(tokenString)
 		if err != nil {
 			abortWithStatusUnauthorized(c, err.Error())
 			return

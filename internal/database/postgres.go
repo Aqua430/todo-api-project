@@ -39,11 +39,17 @@ func runMigrations(connStr string) error {
 	if err != nil {
 		return fmt.Errorf("failed to init migrations: %w", err)
 	}
-
-	if err := m.Up(); err != nil {
-		if errors.Is(err, migrate.ErrNoChange) {
-			return nil
+	defer func() {
+		srcErr, dbErr := m.Close()
+		if srcErr != nil {
+			fmt.Printf("migration source close error: %v\n", srcErr)
 		}
+		if dbErr != nil {
+			fmt.Printf("migration db close error: %v\n", dbErr)
+		}
+	}()
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("failed to apply migrations: %w", err)
 	}
 

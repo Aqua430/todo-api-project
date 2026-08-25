@@ -3,18 +3,19 @@ package router
 import (
 	"todo-api/internal/handlers"
 	"todo-api/internal/middleware"
+	"todo-api/internal/pkg/jwt"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(r *gin.Engine, authHandler *handlers.AuthHandler, todoHandler *handlers.TodoHandler) {
+func SetupRouter(r *gin.Engine, authHandler *handlers.AuthHandler, todoHandler *handlers.TodoHandler, jwtManager *jwt.JWTManager) {
 	authGroup := r.Group("/auth")
 	{
 		authGroup.POST("/sign-up", authHandler.SignUp)
 		authGroup.POST("/sign-in", authHandler.SignIn)
 	}
 
-	v1Group := r.Group("/api/v1", middleware.AuthMiddleware())
+	v1Group := r.Group("/api/v1", middleware.AuthMiddleware(jwtManager))
 	{
 		v1Group.POST("/todos", todoHandler.CreateTodo)
 		v1Group.GET("/todos", todoHandler.GetAllTodos)

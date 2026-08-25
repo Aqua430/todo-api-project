@@ -15,6 +15,7 @@ import (
 	"todo-api/internal/handlers"
 	"todo-api/internal/logger"
 	"todo-api/internal/middleware"
+	"todo-api/internal/pkg/jwt"
 	"todo-api/internal/repository"
 	"todo-api/internal/router"
 	"todo-api/internal/service"
@@ -37,7 +38,8 @@ func main() {
 	slog.Info("successfully connected to PostgreSQL")
 
 	userRepo := repository.NewUserRepository(dbPool)
-	authService := service.NewAuthService(userRepo)
+	jwtManager := jwt.NewJWTManager(cfg.JWT.Secret, cfg.JWT.TTLHours)
+	authService := service.NewAuthService(userRepo, jwtManager)
 	authHandler := handlers.NewAuthHandler(authService)
 
 	todoRepo := repository.NewTodoRepository(dbPool)
@@ -46,9 +48,9 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(middleware.StrucutredLoggerMiddleware())
+	r.Use(middleware.StructuredLoggerMiddleware())
 
-	router.SetupRouter(r, authHandler, todoHandler)
+	router.SetupRouter(r, authHandler, todoHandler, jwtManager)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.HTTPServer.Port,
