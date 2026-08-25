@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"todo-api/internal/middleware"
 	"todo-api/internal/pkg/apperrors"
 
 	"github.com/gin-gonic/gin"
@@ -34,7 +35,7 @@ func MustGetID(ctx *gin.Context, param string) (int, bool) {
 	idStr := ctx.Param(param)
 
 	id, err := strconv.Atoi(idStr)
-	if err != nil && id <= 0 {
+	if err != nil || id <= 0 {
 		HandleError(ctx, apperrors.NewBadRequestError("invalid id parameter"))
 		return 0, false
 	}
@@ -56,7 +57,7 @@ func MustBind(ctx *gin.Context, obj any) bool {
 }
 
 func GetUserID(c *gin.Context) (int, error) {
-	id, exists := c.Get("userID")
+	id, exists := c.Get(middleware.UserCtxKey)
 	if !exists {
 		return 0, errors.New("user id is not found in context")
 	}

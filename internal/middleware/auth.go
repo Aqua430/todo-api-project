@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	userCtxKey = "userID"
+	UserCtxKey = "userID"
 )
 
 func AuthMiddleware(jwtManager *jwt.JWTManager) gin.HandlerFunc {
@@ -34,7 +34,7 @@ func AuthMiddleware(jwtManager *jwt.JWTManager) gin.HandlerFunc {
 			return
 		}
 
-		c.Set(userCtxKey, userID)
+		c.Set(UserCtxKey, userID)
 
 		c.Next()
 	}
