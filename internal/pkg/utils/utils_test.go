@@ -1,12 +1,15 @@
 package utils_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"todo-api/internal/middleware"
 	"todo-api/internal/pkg/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 )
 
 func TestMustGetID(t *testing.T) {
@@ -66,6 +69,123 @@ func TestMustGetID(t *testing.T) {
 			}
 			if w.Code != tt.expectedStatus {
 				t.Errorf("got status = %d, want %d", w.Code, tt.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestGetUserID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name         string
+		setupContext func(c *gin.Context)
+		expectedID   int
+		expectedErr  bool
+	}{
+		{
+			name: "Valid user ID in context",
+			setupContext: func(c *gin.Context) {
+				c.Set(middleware.UserCtxKey, 1)
+			},
+			expectedID:  1,
+			expectedErr: false,
+		},
+		{
+			name:        "Missing user ID in context",
+			expectedID:  0,
+			expectedErr: true,
+		},
+		{
+			name: "Invalid type in context (string instead of int)",
+			setupContext: func(c *gin.Context) {
+				c.Set(middleware.UserCtxKey, "1")
+			},
+			expectedID:  0,
+			expectedErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			if tt.setupContext != nil {
+				tt.setupContext(c)
+			}
+
+			id, err := utils.GetUserID(c)
+
+			if (err != nil) != tt.expectedErr {
+				t.Errorf("got error presence = %v, want %v", err != nil, tt.expectedErr)
+			}
+
+			if id != tt.expectedID {
+				t.Errorf("got id = %d, want %d", id, tt.expectedID)
+			}
+		})
+	}
+}
+
+type sampleStruct struct {
+	Email    string `validate:"required,email"`
+	Password string `validate:"min=6"`
+	Age      int    `validate:"max=10"`
+}
+
+func TestFormatValidationErrors(t *testing.T) {
+	validate := validator.New()
+
+	validationErr := validate.Struct(sampleStruct{
+		Email:    "invalid-email",
+		Password: "123",
+		Age:      20,
+	})
+
+	tests := []struct {
+		name     string
+		err      error
+		expected map[string]string
+	}{
+		{
+			name:     "Nil error",
+			err:      nil,
+			expected: map[string]string{},
+		},
+		{
+			name:     "Non-validation error",
+			err:      errors.New("generic error"),
+			expected: map[string]string{},
+		},
+		{
+			name: "Validation errors formatting",
+			err:  validationErr,
+			expected: map[string]string{
+				"email":    "is invalid",
+				"password": "must be at least 6 characters long",
+				"age":      "invalid value",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := utils.FormatValidationErrors(tt.err)
+
+			if len(got) != len(tt.expected) {
+				t.Fatalf("got map length = %d, want %d", len(got), len(tt.expected))
+			}
+
+			for key, expectedMsg := range tt.expected {
+				gotMsg, exists := got[key]
+				if !exists {
+					t.Errorf("missing key %q in result map", key)
+					continue
+				}
+				if gotMsg != expectedMsg {
+					t.Errorf("for key %q got %q, want %q", key, gotMsg, expectedMsg)
+				}
 			}
 		})
 	}
