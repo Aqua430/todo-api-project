@@ -1,11 +1,13 @@
 package utils_test
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"todo-api/internal/middleware"
+	"todo-api/internal/pkg/apperrors"
 	"todo-api/internal/pkg/utils"
 
 	"github.com/gin-gonic/gin"
@@ -185,6 +187,84 @@ func TestFormatValidationErrors(t *testing.T) {
 				}
 				if gotMsg != expectedMsg {
 					t.Errorf("for key %q got %q, want %q", key, gotMsg, expectedMsg)
+				}
+			}
+		})
+	}
+}
+
+func TestHandleError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name           string
+		err            error
+		expectedStatus int
+		expectedBody   utils.ErrorResponse
+	}{
+		{
+			name:           "AppError without fields",
+			err:            apperrors.NewBadRequestError("bad request message"),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody: utils.ErrorResponse{
+				Error: "bad request message",
+			},
+		},
+		{
+			name: "AppError with validation fields",
+			err: apperrors.NewValidationError(map[string]string{
+				"email": "is invalid",
+			}),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody: utils.ErrorResponse{
+				Error: "validation error",
+				Fields: map[string]string{
+					"email": "is invalid",
+				},
+			},
+		},
+		{
+			name:           "Generic error returns 500",
+			err:            errors.New("unexpected database driver error"),
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody: utils.ErrorResponse{
+				Error: "internal server error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			utils.HandleError(c, tt.err)
+
+			if w.Code != tt.expectedStatus {
+				t.Errorf("got status = %d, want %d", w.Code, tt.expectedStatus)
+			}
+
+			var actualBody utils.ErrorResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &actualBody); err != nil {
+				t.Fatalf("failed to unmarshal response body: %v", err)
+			}
+
+			if actualBody.Error != tt.expectedBody.Error {
+				t.Errorf("got error message = %q, want %q", actualBody.Error, tt.expectedBody.Error)
+			}
+
+			if len(actualBody.Fields) != len(tt.expectedBody.Fields) {
+				t.Fatalf("got fields map len = %d, want %d", len(actualBody.Fields), len(tt.expectedBody.Fields))
+			}
+
+			for k, expectedVal := range tt.expectedBody.Fields {
+				gotVal, exists := actualBody.Fields[k]
+				if !exists {
+					t.Errorf("missing key %q in response fields", k)
+					continue
+				}
+				if gotVal != expectedVal {
+					t.Errorf("for field key %q got %q, want %q", k, gotVal, expectedVal)
 				}
 			}
 		})
