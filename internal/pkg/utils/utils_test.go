@@ -1,6 +1,7 @@
 package utils_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -266,6 +267,61 @@ func TestHandleError(t *testing.T) {
 				if gotVal != expectedVal {
 					t.Errorf("for field key %q got %q, want %q", k, gotVal, expectedVal)
 				}
+			}
+		})
+	}
+}
+
+type bindTestPayload struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+func TestMustBind(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name           string
+		body           string
+		expectedResult bool
+		expectedStatus int
+	}{
+		{
+			name:           "Valid JSON and fields",
+			body:           `{"email": "test@example.com"}`,
+			expectedResult: true,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Malformed JSON syntax",
+			body:           `{"email": `,
+			expectedResult: false,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Invalid field validation (bad email)",
+			body:           `{"email": "not-an-email"}`,
+			expectedResult: false,
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			var payload bindTestPayload
+			result := utils.MustBind(c, &payload)
+
+			if result != tt.expectedResult {
+				t.Errorf("got result = %v, want %v", result, tt.expectedResult)
+			}
+
+			if !tt.expectedResult && w.Code != tt.expectedStatus {
+				t.Errorf("got status = %d, want %d", w.Code, tt.expectedStatus)
 			}
 		})
 	}
