@@ -47,3 +47,46 @@ func TestHashPassword(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckPasswordHash(t *testing.T) {
+	validPassword := "my_secure_password"
+	validHash, err := hash.HashPassword(validPassword)
+	if err != nil {
+		t.Fatalf("failed to generate hash for setup: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		password string
+		hash     string
+		expected bool
+	}{
+		{
+			name:     "Correct password and hash",
+			password: validPassword,
+			hash:     validHash,
+			expected: true,
+		},
+		{
+			name:     "Incorrect password",
+			password: "wrong_password",
+			hash:     validHash,
+			expected: false,
+		},
+		{
+			name:     "Malformed hash string",
+			password: validPassword,
+			hash:     "invalid_bcrypt_hash_format",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hash.CheckPasswordHash(tt.password, tt.hash)
+			if got != tt.expected {
+				t.Errorf("got %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
