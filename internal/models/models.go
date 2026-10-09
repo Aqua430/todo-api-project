@@ -38,6 +38,28 @@ type LoginInput struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type PaginationInput struct {
+	Page  int `form:"page"`
+	Limit int `form:"limit"`
+}
+
+func (p PaginationInput) GetPage() int {
+	if p.Page <= 0 {
+		return 1
+	}
+	return p.Page
+}
+
+func (p PaginationInput) GetLimit() int {
+	if p.Limit <= 0 {
+		return 1
+	}
+	if p.Limit > 100 {
+		return 100
+	}
+	return p.Limit
+}
+
 var (
 	ErrUserNotFound       = errors.New("user is not found")
 	ErrTodoNotFound       = errors.New("task is not found or does not belongs to you")
