@@ -43,7 +43,7 @@ func MustGetID(ctx *gin.Context, param string) (int, bool) {
 	return id, true
 }
 
-func MustBind(ctx *gin.Context, obj any) bool {
+func MustBindJSON(ctx *gin.Context, obj any) bool {
 	if err := ctx.ShouldBindJSON(obj); err != nil {
 		fields := FormatValidationErrors(err)
 		if len(fields) > 0 {
@@ -51,6 +51,19 @@ func MustBind(ctx *gin.Context, obj any) bool {
 			return false
 		}
 		HandleError(ctx, apperrors.NewBadRequestError("invalid request body"))
+		return false
+	}
+	return true
+}
+
+func MustBindQuery(ctx *gin.Context, obj any) bool {
+	if err := ctx.ShouldBindQuery(obj); err != nil {
+		fields := FormatValidationErrors(err)
+		if len(fields) > 0 {
+			HandleError(ctx, apperrors.NewValidationError(fields))
+			return false
+		}
+		HandleError(ctx, apperrors.NewBadRequestError("invalid query parameters"))
 		return false
 	}
 	return true

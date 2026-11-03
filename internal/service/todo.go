@@ -10,7 +10,7 @@ import (
 
 type TodoRepositoryInterface interface {
 	Create(ctx context.Context, userID int, title string) (int, error)
-	GetAll(ctx context.Context, userID int) ([]models.TodoItem, error)
+	GetAll(ctx context.Context, userID, limit, offset int) ([]models.TodoItem, int, error)
 	DeleteTodo(ctx context.Context, todoID, userID int) error
 	ToggleCompleted(ctx context.Context, todoID, userID int) error
 	UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error
@@ -28,8 +28,20 @@ func (s *TodoService) CreateTodo(ctx context.Context, userID int, title string) 
 	return s.repo.Create(ctx, userID, title)
 }
 
-func (s *TodoService) GetAllTodos(ctx context.Context, userID int) ([]models.TodoItem, error) {
-	return s.repo.GetAll(ctx, userID)
+func (s *TodoService) GetAllTodos(ctx context.Context, userID int, pgnParams models.PaginationParams) ([]models.TodoItem, models.PaginationMeta, error) {
+	offset := (pgnParams.Page - 1) * pgnParams.Limit
+	todos, total, err := s.repo.GetAll(ctx, userID, pgnParams.Limit, offset)
+	if err != nil {
+		return nil, models.PaginationMeta{}, err
+	}
+	totalPages := (total + pgnParams.Limit - 1) / pgnParams.Limit
+	pgnMeta := models.PaginationMeta{
+		Page:       pgnParams.Page,
+		Limit:      pgnParams.Limit,
+		Total:      total,
+		TotalPages: totalPages,
+	}
+	return todos, pgnMeta, nil
 }
 
 func (s *TodoService) DeleteTodo(ctx context.Context, todoID, userID int) error {

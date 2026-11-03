@@ -22,6 +22,10 @@ func FormatValidationErrors(err error) map[string]string {
 				fields[field] = "must be at least " + fe.Param() + " characters long"
 			case "email":
 				fields[field] = "is invalid"
+			case "lte":
+				fields[field] = "must be less than or equal to " + fe.Param()
+			case "gte":
+				fields[field] = "must be greater than or equal to " + fe.Param()
 			default:
 				fields[field] = "invalid value"
 			}

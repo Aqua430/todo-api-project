@@ -11,7 +11,7 @@ import (
 
 type TodoService interface {
 	CreateTodo(ctx context.Context, userID int, title string) (int, error)
-	GetAllTodos(ctx context.Context, userID int) ([]models.TodoItem, error)
+	GetAllTodos(ctx context.Context, userID int, pgnParams models.PaginationParams) ([]models.TodoItem, models.PaginationMeta, error)
 	DeleteTodo(ctx context.Context, todoID, userID int) error
 	ToggleCompleted(ctx context.Context, todoID, userID int) error
 	UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error
@@ -33,7 +33,7 @@ func (h *TodoHandler) CreateTodo(c *gin.Context) {
 	}
 
 	var input models.CreateTodoInput
-	if !utils.MustBind(c, &input) {
+	if !utils.MustBindJSON(c, &input) {
 		return
 	}
 
@@ -53,13 +53,30 @@ func (h *TodoHandler) GetAllTodos(c *gin.Context) {
 		return
 	}
 
-	todos, err := h.todoService.GetAllTodos(c.Request.Context(), userID)
+	pgnInput := models.PaginationInput{
+		Page:  1,
+		Limit: 20,
+	}
+
+	if ok := utils.MustBindQuery(c, &pgnInput); !ok {
+		return
+	}
+
+	pgnParams := models.PaginationParams{
+		Page:  pgnInput.Page,
+		Limit: pgnInput.Limit,
+	}
+
+	todos, pgnMeta, err := h.todoService.GetAllTodos(c.Request.Context(), userID, pgnParams)
 	if err != nil {
 		utils.HandleError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, todos)
+	c.JSON(http.StatusOK, gin.H{
+		"data": todos,
+		"meta": pgnMeta,
+	})
 }
 
 func (h *TodoHandler) DeleteTodo(c *gin.Context) {
@@ -117,7 +134,7 @@ func (h *TodoHandler) UpdateTodoTitle(c *gin.Context) {
 	}
 
 	var input models.UpdateTodoInput
-	if !utils.MustBind(c, &input) {
+	if !utils.MustBindJSON(c, &input) {
 		return
 	}
 

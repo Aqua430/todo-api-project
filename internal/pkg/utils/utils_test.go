@@ -314,7 +314,7 @@ func TestMustBind(t *testing.T) {
 			c.Request.Header.Set("Content-Type", "application/json")
 
 			var payload bindTestPayload
-			result := utils.MustBind(c, &payload)
+			result := utils.MustBindJSON(c, &payload)
 
 			if result != tt.expectedResult {
 				t.Errorf("got result = %v, want %v", result, tt.expectedResult)

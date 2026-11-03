@@ -39,25 +39,20 @@ type LoginInput struct {
 }
 
 type PaginationInput struct {
-	Page  int `form:"page"`
-	Limit int `form:"limit"`
+	Page  int `form:"page" binding:"gte=1"`
+	Limit int `form:"limit" binding:"gte=1,lte=100"`
 }
 
-func (p PaginationInput) GetPage() int {
-	if p.Page <= 0 {
-		return 1
-	}
-	return p.Page
+type PaginationParams struct {
+	Page  int
+	Limit int
 }
 
-func (p PaginationInput) GetLimit() int {
-	if p.Limit <= 0 {
-		return 1
-	}
-	if p.Limit > 100 {
-		return 100
-	}
-	return p.Limit
+type PaginationMeta struct {
+	Page       int `json:"page"`
+	Limit      int `json:"limit"`
+	Total      int `json:"total"`
+	TotalPages int `json:"total_pages"`
 }
 
 var (

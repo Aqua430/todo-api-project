@@ -24,7 +24,7 @@ func NewAuthHandler(authService AuthService) *AuthHandler {
 
 func (h *AuthHandler) SignUp(c *gin.Context) {
 	var req models.RegisterInput
-	if !utils.MustBind(c, &req) {
+	if !utils.MustBindJSON(c, &req) {
 		return
 	}
 
@@ -39,7 +39,7 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 
 func (h *AuthHandler) SignIn(c *gin.Context) {
 	var req models.LoginInput
-	if !utils.MustBind(c, &req) {
+	if !utils.MustBindJSON(c, &req) {
 		return
 	}
 

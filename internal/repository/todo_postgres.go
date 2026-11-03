@@ -4,6 +4,7 @@ import (
 	"context"
 	"todo-api/internal/models"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,31 +28,67 @@ func (r *TodoRepository) Create(ctx context.Context, userID int, title string) (
 	return id, nil
 }
 
-func (r *TodoRepository) GetAll(ctx context.Context, userID int) ([]models.TodoItem, error) {
-	query := "SELECT id, user_id, title, completed, created_at FROM todos WHERE user_id = $1 ORDER BY created_at DESC"
+func (r *TodoRepository) GetAll(ctx context.Context, userID, limit, offset int) ([]models.TodoItem, int, error) {
+	query := `WITH total AS (
+    	SELECT COUNT(*) AS amount
+    	FROM todos
+    	WHERE user_id = $1
+	),
+	page AS (
+    	SELECT id, user_id, title, completed, created_at
+    	FROM todos
+    	WHERE user_id = $1
+    	ORDER BY created_at DESC, id DESC
+    	LIMIT $2 OFFSET $3
+	) SELECT
+    	page.id,
+    	page.user_id,
+    	page.title,
+    	page.completed,
+    	page.created_at,
+    	total.amount
+	FROM total
+	LEFT JOIN page ON TRUE;`
 
-	rows, err := r.db.Query(ctx, query, userID)
+	rows, err := r.db.Query(ctx, query, userID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
 	todos := make([]models.TodoItem, 0)
 
+	var total int64
 	for rows.Next() {
-		var item models.TodoItem
-		err := rows.Scan(&item.ID, &item.UserID, &item.Title, &item.Completed, &item.CreatedAt)
+		var (
+			id        pgtype.Int4
+			userID    pgtype.Int4
+			title     pgtype.Text
+			completed pgtype.Bool
+			createdAt pgtype.Timestamptz
+		)
+		err := rows.Scan(&id, &userID, &title, &completed, &createdAt, &total)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		todos = append(todos, item)
+
+		if id.Valid {
+			item := models.TodoItem{
+				ID:        int(id.Int32),
+				UserID:    int(userID.Int32),
+				Title:     title.String,
+				Completed: completed.Bool,
+				CreatedAt: createdAt.Time,
+			}
+			todos = append(todos, item)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return todos, nil
+	return todos, int(total), nil
 }
 
 func (r *TodoRepository) DeleteTodo(ctx context.Context, todoID, userID int) error {
