@@ -12,7 +12,7 @@ type TodoRepositoryInterface interface {
 	Create(ctx context.Context, userID int, title string) (int, error)
 	GetAll(ctx context.Context, userID, limit, offset int) ([]models.TodoItem, int, error)
 	DeleteTodo(ctx context.Context, todoID, userID int) error
-	ToggleCompleted(ctx context.Context, todoID, userID int) error
+	ToggleDone(ctx context.Context, todoID, userID int) error
 	UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error
 }
 
@@ -52,8 +52,8 @@ func (s *TodoService) DeleteTodo(ctx context.Context, todoID, userID int) error 
 	return err
 }
 
-func (s *TodoService) ToggleCompleted(ctx context.Context, todoID, userID int) error {
-	err := s.repo.ToggleCompleted(ctx, todoID, userID)
+func (s *TodoService) ToggleDone(ctx context.Context, todoID, userID int) error {
+	err := s.repo.ToggleDone(ctx, todoID, userID)
 	if errors.Is(err, models.ErrTodoNotFound) {
 		return apperrors.NewNotFoundError(models.ErrTodoNotFound.Error())
 	}

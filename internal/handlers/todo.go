@@ -13,7 +13,7 @@ type TodoService interface {
 	CreateTodo(ctx context.Context, userID int, title string) (int, error)
 	GetAllTodos(ctx context.Context, userID int, pgnParams models.PaginationParams) ([]models.TodoItem, models.PaginationMeta, error)
 	DeleteTodo(ctx context.Context, todoID, userID int) error
-	ToggleCompleted(ctx context.Context, todoID, userID int) error
+	ToggleDone(ctx context.Context, todoID, userID int) error
 	UpdateTodoTitle(ctx context.Context, todoID, userID int, todoTitle string) error
 }
 
@@ -100,7 +100,7 @@ func (h *TodoHandler) DeleteTodo(c *gin.Context) {
 	c.Writer.WriteHeaderNow()
 }
 
-func (h *TodoHandler) ToggleCompleted(c *gin.Context) {
+func (h *TodoHandler) ToggleDone(c *gin.Context) {
 	todoID, ok := utils.MustGetID(c, "id")
 	if !ok {
 		return
@@ -112,7 +112,7 @@ func (h *TodoHandler) ToggleCompleted(c *gin.Context) {
 		return
 	}
 
-	if err := h.todoService.ToggleCompleted(c.Request.Context(), todoID, userID); err != nil {
+	if err := h.todoService.ToggleDone(c.Request.Context(), todoID, userID); err != nil {
 		utils.HandleError(c, err)
 		return
 	}

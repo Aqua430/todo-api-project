@@ -35,7 +35,7 @@ func (r *TodoRepository) GetAll(ctx context.Context, userID, limit, offset int) 
     	WHERE user_id = $1
 	),
 	page AS (
-    	SELECT id, user_id, title, completed, created_at
+    	SELECT id, user_id, title, done, created_at
     	FROM todos
     	WHERE user_id = $1
     	ORDER BY created_at DESC, id DESC
@@ -44,7 +44,7 @@ func (r *TodoRepository) GetAll(ctx context.Context, userID, limit, offset int) 
     	page.id,
     	page.user_id,
     	page.title,
-    	page.completed,
+    	page.done,
     	page.created_at,
     	total.amount
 	FROM total
@@ -64,10 +64,10 @@ func (r *TodoRepository) GetAll(ctx context.Context, userID, limit, offset int) 
 			id        pgtype.Int4
 			userID    pgtype.Int4
 			title     pgtype.Text
-			completed pgtype.Bool
+			done      pgtype.Bool
 			createdAt pgtype.Timestamptz
 		)
-		err := rows.Scan(&id, &userID, &title, &completed, &createdAt, &total)
+		err := rows.Scan(&id, &userID, &title, &done, &createdAt, &total)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -77,7 +77,7 @@ func (r *TodoRepository) GetAll(ctx context.Context, userID, limit, offset int) 
 				ID:        int(id.Int32),
 				UserID:    int(userID.Int32),
 				Title:     title.String,
-				Completed: completed.Bool,
+				Done:      done.Bool,
 				CreatedAt: createdAt.Time,
 			}
 			todos = append(todos, item)
@@ -106,8 +106,8 @@ func (r *TodoRepository) DeleteTodo(ctx context.Context, todoID, userID int) err
 	return nil
 }
 
-func (r *TodoRepository) ToggleCompleted(ctx context.Context, todoID, userID int) error {
-	query := "UPDATE todos SET completed = NOT completed WHERE id = $1 AND user_id = $2"
+func (r *TodoRepository) ToggleDone(ctx context.Context, todoID, userID int) error {
+	query := "UPDATE todos SET done = NOT done WHERE id = $1 AND user_id = $2"
 
 	result, err := r.db.Exec(ctx, query, todoID, userID)
 	if err != nil {

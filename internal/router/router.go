@@ -20,7 +20,7 @@ func SetupRouter(r *gin.Engine, authHandler *handlers.AuthHandler, todoHandler *
 		v1Group.POST("/todos", todoHandler.CreateTodo)
 		v1Group.GET("/todos", todoHandler.GetAllTodos)
 		v1Group.DELETE("/todos/:id", todoHandler.DeleteTodo)
-		v1Group.PATCH("/todos/:id", todoHandler.ToggleCompleted)
+		v1Group.PATCH("/todos/:id", todoHandler.ToggleDone)
 		v1Group.PUT("/todos/:id", todoHandler.UpdateTodoTitle)
 	}
 }

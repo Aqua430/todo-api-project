@@ -16,7 +16,7 @@ type TodoItem struct {
 	ID        int       `json:"id"`
 	UserID    int       `json:"user_id"`
 	Title     string    `json:"title"`
-	Completed bool      `json:"completed"`
+	Done      bool      `json:"done"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
